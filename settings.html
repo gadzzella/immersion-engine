@@ -1,0 +1,34 @@
+<div id="immersion_engine_settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>Immersion Engine (MVP)</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+
+            <!-- Global enable/disable toggle -->
+            <label class="checkbox_label" for="immersion_enabled">
+                <input id="immersion_enabled" type="checkbox" />
+                <span>Enable Immersion Engine</span>
+            </label>
+
+            <!-- Per-character schedule template selector -->
+            <div class="immersion-row">
+                <label for="immersion_template">Schedule Template (per character):</label>
+                <select id="immersion_template" class="text_pole"></select>
+            </div>
+
+            <!-- Live State Preview Panel -->
+            <div class="immersion-preview">
+                <div class="immersion-preview-header">
+                    <b>Live State Preview</b>
+                    <button id="immersion_refresh" class="menu_button">Refresh</button>
+                </div>
+                <div id="immersion_preview_content">
+                    <i>No data yet — select a character and click Refresh.</i>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
