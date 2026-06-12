@@ -12,6 +12,18 @@
                 <span>Enable Immersion Engine</span>
             </label>
 
+            <!-- TEMPORARY DIAGNOSTIC: visible chat injection toggle -->
+            <label class="checkbox_label" for="immersion_debug_show_in_chat">
+                <input id="immersion_debug_show_in_chat" type="checkbox" />
+                <span>[Debug] Show immersion context in chat</span>
+            </label>
+            <div class="immersion-debug-note">
+                <i>Diagnostic only: inserts the immersion context as a visible
+                system message in chat before each generation, so you can
+                confirm the LLM receives it. Remove this option once
+                diagnosis is complete.</i>
+            </div>
+
             <!-- Per-character schedule template selector -->
             <div class="immersion-row">
                 <label for="immersion_template">Schedule Template (per character):</label>
