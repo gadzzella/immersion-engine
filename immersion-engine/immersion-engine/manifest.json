@@ -1,0 +1,13 @@
+{
+  "display_name": "Immersion Engine",
+  "loading_order": 100,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "Immersion Engine Team",
+  "version": "0.1.0",
+  "description": "Injects lightweight, persistent life-state context (time, location, activity, duration) into the prompt so characters feel like they live continuously.",
+  "homePage": "https://github.com/YOUR_USERNAME/immersion-engine",
+  "auto_update": true
+}
