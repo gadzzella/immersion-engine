@@ -406,23 +406,44 @@ function injectDebugChatMessage(context, injectionText) {
     extra: { isSmallSys: true },
   };
 
-  context.chat.push(debugMessage);
+  // IMPORTANT FIX: previously this used context.chat.push(debugMessage),
+  // which appends AFTER the most recent message — i.e. AFTER the user's
+  // current turn. Since the prompt is built from context.chat in order,
+  // that placed the immersion context AFTER the user's message (and after
+  // the assistant's reply once rendered), so the model never saw it before
+  // generating.
+  //
+  // Fix: splice the debug message in immediately BEFORE the last message
+  // (the user's current turn), so the array order becomes:
+  //   ...older history..., [Immersion Context], <user's current message>
+  // This matches where "current state" context belongs — visible to the
+  // model as part of the context leading up to the user's message.
+  const insertIndex = Math.max(0, context.chat.length - 1);
+  context.chat.splice(insertIndex, 0, debugMessage);
 
-  console.log('[Immersion Engine] [DEBUG] Pushed visible system message into chat:', debugMessage);
+  console.log('[Immersion Engine] [DEBUG] Spliced visible system message into chat at index', insertIndex, ':', debugMessage);
+  console.log('[Immersion Engine] [DEBUG] chat.length is now', context.chat.length);
 
-  // Ask SillyTavern to render the newly-added message so it's visible
-  // immediately in the UI (best-effort — if this helper isn't available
-  // in this ST version, the message still exists in context.chat and will
-  // be included in the prompt on next render).
-  if (typeof context.addOneMessage === 'function') {
+  // Re-render the chat so the message appears in the correct position in
+  // the UI. addOneMessage() typically appends to the DOM, which would
+  // visually misplace a spliced message — so prefer a full reload of the
+  // chat display if available.
+  if (typeof context.reloadCurrentChat === 'function') {
+    try {
+      context.reloadCurrentChat();
+      console.log('[Immersion Engine] [DEBUG] Re-rendered chat via context.reloadCurrentChat().');
+    } catch (err) {
+      console.warn('[Immersion Engine] [DEBUG] context.reloadCurrentChat() failed:', err);
+    }
+  } else if (typeof context.addOneMessage === 'function') {
+    console.warn('[Immersion Engine] [DEBUG] context.reloadCurrentChat not available — falling back to addOneMessage(), which may render the message in the wrong visual position (it will still be correct in the underlying chat array used for prompt-building).');
     try {
       context.addOneMessage(debugMessage);
-      console.log('[Immersion Engine] [DEBUG] Rendered debug message via context.addOneMessage().');
     } catch (err) {
       console.warn('[Immersion Engine] [DEBUG] context.addOneMessage() failed:', err);
     }
   } else {
-    console.warn('[Immersion Engine] [DEBUG] context.addOneMessage not available — message added to chat array only.');
+    console.warn('[Immersion Engine] [DEBUG] Neither reloadCurrentChat nor addOneMessage available — message added to chat array only; it should still be included in prompt assembly.');
   }
 }
 
@@ -564,6 +585,24 @@ jQuery(async () => {
   // what's available in this build, rather than assuming.
   const generationEvents = Object.keys(context.eventTypes || {}).filter((k) => k.includes('GENERATION'));
   console.log('[Immersion Engine] Available GENERATION_* event types:', generationEvents);
+
+  // --- Earliest hook: MESSAGE_SENT ---------------------------------------------
+  // Per SillyTavern docs: "the message is sent by the user and recorded
+  // into the chat object but not yet rendered in the UI." This fires
+  // strictly BEFORE any GENERATION_* event, making it the earliest point
+  // we can register/refresh the extension prompt before prompt assembly
+  // begins. Registered in addition to (not instead of) the GENERATION_*
+  // hooks below, since calling injectCurrentState() multiple times is
+  // harmless (idempotent re-registration via setExtensionPrompt).
+  if (context.eventTypes.MESSAGE_SENT) {
+    console.log('[Immersion Engine] Registering handler for MESSAGE_SENT');
+    context.eventSource.on(context.eventTypes.MESSAGE_SENT, () => {
+      console.log('[Immersion Engine] Event fired: MESSAGE_SENT');
+      injectCurrentState();
+    });
+  } else {
+    console.warn('[Immersion Engine] MESSAGE_SENT not found in eventTypes.');
+  }
 
   // --- Primary hook: GENERATION_AFTER_COMMANDS --------------------------------
   // Per SillyTavern docs, this fires "about to start after processing slash
