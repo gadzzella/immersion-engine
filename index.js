@@ -34,28 +34,14 @@ const EXTENSION_PROMPT_KEY = 'immersion_engine_injection';
 // Used only for fetching static assets like settings.html.
 const EXTENSION_FOLDER_NAME = 'immersion-engine';
 
-// Position/depth for setExtensionPrompt.
-//
-// IMPORTANT: These were previously hardcoded as magic numbers (1 and 4)
-// based on an assumed enum mapping. That assumption has NOT been verified
-// against the actual SillyTavern build and may be WRONG (different ST
-// versions define extension_prompt_types/roles with different numeric
-// values). To avoid shipping incorrect magic numbers, these are now
-// resolved at runtime from context.extension_prompt_types /
-// context.extension_prompt_roles inside resolveInjectionConfig().
-//
-// INJECTION_DEPTH is the only value we keep as a literal constant, since
-// "depth" is a relative message-count and not an enum.
-const INJECTION_DEPTH = 4;
-
 // Cached at init time once we've read the real enums from context.
 let resolvedInjectionPosition = null;
 let resolvedInjectionRole = null;
 
 /**
  * Resolves the correct extension_prompt_types / extension_prompt_roles
- * values from the live SillyTavern context. Logs everything so the actual
- * enum values for this ST build are visible in the console — no guessing.
+ * values from the live SillyTavern context.
+ * Uses IN_CHAT with depth 0 and SYSTEM role for reliable injection.
  */
 function resolveInjectionConfig(context) {
   const types = context.extension_prompt_types;
@@ -64,26 +50,21 @@ function resolveInjectionConfig(context) {
   console.log('[Immersion Engine] Raw extension_prompt_types from context:', types);
   console.log('[Immersion Engine] Raw extension_prompt_roles from context:', roles);
 
-  // Prefer IN_PROMPT if it exists (intended: inject into the main prompt
-  // area at a depth, not as a chat-history message). Fall back to IN_CHAT,
-  // then to 0 as a last resort — logging clearly which path was taken.
-  if (types && typeof types.IN_PROMPT !== 'undefined') {
-    resolvedInjectionPosition = types.IN_PROMPT;
-    console.log('[Immersion Engine] Using extension_prompt_types.IN_PROMPT =', resolvedInjectionPosition);
-  } else if (types && typeof types.IN_CHAT !== 'undefined') {
+  // Always use IN_CHAT (1) with depth 0 for reliable injection
+  if (types && typeof types.IN_CHAT !== 'undefined') {
     resolvedInjectionPosition = types.IN_CHAT;
-    console.warn('[Immersion Engine] IN_PROMPT not found on extension_prompt_types — falling back to IN_CHAT =', resolvedInjectionPosition);
+    console.log('[Immersion Engine] Using extension_prompt_types.IN_CHAT =', resolvedInjectionPosition);
   } else {
-    resolvedInjectionPosition = 0;
-    console.warn('[Immersion Engine] Neither IN_PROMPT nor IN_CHAT found — defaulting position to 0. THIS IS A GUESS.');
+    resolvedInjectionPosition = 1; // fallback to known value
+    console.warn('[Immersion Engine] IN_CHAT not found — defaulting position to 1');
   }
 
   if (roles && typeof roles.SYSTEM !== 'undefined') {
     resolvedInjectionRole = roles.SYSTEM;
     console.log('[Immersion Engine] Using extension_prompt_roles.SYSTEM =', resolvedInjectionRole);
   } else {
-    resolvedInjectionRole = undefined;
-    console.warn('[Immersion Engine] extension_prompt_roles.SYSTEM not found — role argument will be omitted.');
+    resolvedInjectionRole = 0; // fallback to known value
+    console.warn('[Immersion Engine] extension_prompt_roles.SYSTEM not found — defaulting role to 0');
   }
 }
 
@@ -94,11 +75,6 @@ const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'frid
 
 const defaultSettings = {
   enabled: true,
-  // TEMPORARY DIAGNOSTIC OPTION: when true, the immersion context block is
-  // also inserted as a visible system message in the chat (in addition to
-  // the normal setExtensionPrompt injection), so you can directly confirm
-  // whether the LLM sees it in its context.
-  debugShowInChat: false,
   // Per-character state, keyed by character avatar filename (stable ID).
   // Shape per character:
   // {
@@ -301,7 +277,7 @@ function injectCurrentState() {
   if (!extension_settings[MODULE_NAME].enabled) {
     console.log('[Immersion Engine] Extension disabled — clearing injection.');
     if (resolvedInjectionPosition !== null) {
-      context.setExtensionPrompt(EXTENSION_PROMPT_KEY, '', resolvedInjectionPosition, INJECTION_DEPTH, false, resolvedInjectionRole);
+      context.setExtensionPrompt(EXTENSION_PROMPT_KEY, '', resolvedInjectionPosition, 0, false, resolvedInjectionRole);
     }
     return;
   }
@@ -311,7 +287,7 @@ function injectCurrentState() {
     // No character selected (e.g. group chat) — nothing to inject.
     console.log('[Immersion Engine] No character selected — clearing injection.');
     if (resolvedInjectionPosition !== null) {
-      context.setExtensionPrompt(EXTENSION_PROMPT_KEY, '', resolvedInjectionPosition, INJECTION_DEPTH, false, resolvedInjectionRole);
+      context.setExtensionPrompt(EXTENSION_PROMPT_KEY, '', resolvedInjectionPosition, 0, false, resolvedInjectionRole);
     }
     return;
   }
@@ -343,20 +319,17 @@ function injectCurrentState() {
   console.log('[Immersion Engine] Calling setExtensionPrompt with:');
   console.log('  key:', EXTENSION_PROMPT_KEY);
   console.log('  position:', resolvedInjectionPosition);
-  console.log('  depth:', INJECTION_DEPTH);
+  console.log('  depth:', 0);
   console.log('  role:', resolvedInjectionRole);
 
   // setExtensionPrompt(key, value, position, depth, scan, role)
-  // - key: unique identifier so we can update/clear our own injection
-  // - value: the text block to inject
-  // - position/role: resolved at runtime from the live context (see
-  //   resolveInjectionConfig) rather than hardcoded magic numbers.
-  // - depth: how many messages back from the end to insert
+  // - position: IN_CHAT, depth 0 -> inserted just before the user's current message
+  // - role: SYSTEM
   const setExtensionPromptResult = context.setExtensionPrompt(
     EXTENSION_PROMPT_KEY,
     injection,
     resolvedInjectionPosition,
-    INJECTION_DEPTH,
+    0,
     false,
     resolvedInjectionRole,
   );
@@ -371,80 +344,8 @@ function injectCurrentState() {
     console.log('[Immersion Engine] context.extensionPrompts not available to verify registration.');
   }
 
-  // --- TEMPORARY DIAGNOSTIC: visible chat injection -------------------------
-  // If enabled, also push a literal visible system message into the chat
-  // array containing the immersion context. This bypasses
-  // setExtensionPrompt entirely and lets us confirm whether the LLM is
-  // capable of seeing/using this information at all, independent of
-  // whether the extension-prompt registration mechanism is working.
-  if (extension_settings[MODULE_NAME].debugShowInChat) {
-    injectDebugChatMessage(context, injection);
-  }
-
   // Refresh the live preview panel to reflect the just-computed state.
   refreshPreviewPanel({ timeOfDay, location, activity, duration });
-}
-
-/**
- * TEMPORARY DIAGNOSTIC FUNCTION.
- *
- * Pushes a visible system message containing the immersion context
- * directly into context.chat, immediately before generation. This is NOT
- * part of the permanent architecture — it exists only to let us confirm
- * the LLM receives this text, by checking whether the character's reply
- * acknowledges it.
- *
- * Remove this function and its call site once diagnosis is complete.
- */
-function injectDebugChatMessage(context, injectionText) {
-  const debugMessage = {
-    name: 'Immersion Engine (DEBUG)',
-    is_user: false,
-    is_system: true,
-    send_date: Date.now(),
-    mes: injectionText,
-    extra: { isSmallSys: true },
-  };
-
-  // IMPORTANT FIX: previously this used context.chat.push(debugMessage),
-  // which appends AFTER the most recent message — i.e. AFTER the user's
-  // current turn. Since the prompt is built from context.chat in order,
-  // that placed the immersion context AFTER the user's message (and after
-  // the assistant's reply once rendered), so the model never saw it before
-  // generating.
-  //
-  // Fix: splice the debug message in immediately BEFORE the last message
-  // (the user's current turn), so the array order becomes:
-  //   ...older history..., [Immersion Context], <user's current message>
-  // This matches where "current state" context belongs — visible to the
-  // model as part of the context leading up to the user's message.
-  const insertIndex = Math.max(0, context.chat.length - 1);
-  context.chat.splice(insertIndex, 0, debugMessage);
-
-  console.log('[Immersion Engine] [DEBUG] Spliced visible system message into chat at index', insertIndex, ':', debugMessage);
-  console.log('[Immersion Engine] [DEBUG] chat.length is now', context.chat.length);
-
-  // Re-render the chat so the message appears in the correct position in
-  // the UI. addOneMessage() typically appends to the DOM, which would
-  // visually misplace a spliced message — so prefer a full reload of the
-  // chat display if available.
-  if (typeof context.reloadCurrentChat === 'function') {
-    try {
-      context.reloadCurrentChat();
-      console.log('[Immersion Engine] [DEBUG] Re-rendered chat via context.reloadCurrentChat().');
-    } catch (err) {
-      console.warn('[Immersion Engine] [DEBUG] context.reloadCurrentChat() failed:', err);
-    }
-  } else if (typeof context.addOneMessage === 'function') {
-    console.warn('[Immersion Engine] [DEBUG] context.reloadCurrentChat not available — falling back to addOneMessage(), which may render the message in the wrong visual position (it will still be correct in the underlying chat array used for prompt-building).');
-    try {
-      context.addOneMessage(debugMessage);
-    } catch (err) {
-      console.warn('[Immersion Engine] [DEBUG] context.addOneMessage() failed:', err);
-    }
-  } else {
-    console.warn('[Immersion Engine] [DEBUG] Neither reloadCurrentChat nor addOneMessage available — message added to chat array only; it should still be included in prompt assembly.');
-  }
 }
 
 // --- Live State Preview Panel --------------------------------------------------
@@ -509,19 +410,6 @@ async function loadSettingsUI() {
     // Immediately clear or re-add the injection to reflect the new state.
     injectCurrentState();
   });
-
-  // --- TEMPORARY DIAGNOSTIC: "Show immersion context in chat" toggle ---
-  const debugCheckbox = document.getElementById('immersion_debug_show_in_chat');
-  if (debugCheckbox) {
-    debugCheckbox.checked = extension_settings[MODULE_NAME].debugShowInChat;
-    debugCheckbox.addEventListener('change', (e) => {
-      extension_settings[MODULE_NAME].debugShowInChat = e.target.checked;
-      persist();
-      console.log('[Immersion Engine] [DEBUG] "Show immersion context in chat" set to:', e.target.checked);
-    });
-  } else {
-    console.warn('[Immersion Engine] Debug checkbox #immersion_debug_show_in_chat not found in settings.html');
-  }
 
   // --- Schedule template selector ---
   const templateSelect = document.getElementById('immersion_template');
