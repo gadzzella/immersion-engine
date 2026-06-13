@@ -187,15 +187,15 @@ function timeToMinutes(hhmm) {
 }
 
 /**
- * Derives a human-readable "Time" label (Morning/Afternoon/Evening/Night)
- * from the current hour. This is the "Time Awareness" module.
+ * Returns the exact time in 12-hour format with am/pm, e.g. "2:47 am".
  */
-function getTimeOfDayLabel(date) {
-  const hour = date.getHours();
-  if (hour >= 5 && hour < 12) return 'Morning';
-  if (hour >= 12 && hour < 17) return 'Afternoon';
-  if (hour >= 17 && hour < 21) return 'Evening';
-  return 'Night';
+function getExactTimeLabel(date) {
+  let hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? 'pm' : 'am';
+  hours = hours % 12 || 12;
+  const minutesStr = minutes.toString().padStart(2, '0');
+  return `${hours}:${minutesStr} ${ampm}`;
 }
 
 // --- Activity / Location / Duration update (time-delta logic) ---------------
@@ -293,19 +293,19 @@ function injectCurrentState() {
   }
 
   const { now, activity, location } = updateActivityState(characterId);
-  const timeOfDay = getTimeOfDayLabel(now);
+  const timeString = getExactTimeLabel(now);
   const duration = formatActivityDuration(characterId, now);
 
   const injection =
     `[Immersion Context]\n` +
-    `Time=${timeOfDay}\n` +
+    `Time=${timeString}\n` +
     `Location=${location}\n` +
     `Activity=${activity}\n` +
     `ActivityDuration=${duration}\n` +
     `[/Immersion Context]`;
 
   console.log('[Immersion Engine] Character:', characterId);
-  console.log('[Immersion Engine] Computed state:', { timeOfDay, location, activity, duration });
+  console.log('[Immersion Engine] Computed state:', { timeString, location, activity, duration });
   console.log('[Immersion Engine] Generated immersion text:\n' + injection);
 
   if (resolvedInjectionPosition === null) {
@@ -345,7 +345,7 @@ function injectCurrentState() {
   }
 
   // Refresh the live preview panel to reflect the just-computed state.
-  refreshPreviewPanel({ timeOfDay, location, activity, duration });
+  refreshPreviewPanel({ timeString, location, activity, duration });
 }
 
 // --- Live State Preview Panel --------------------------------------------------
@@ -370,7 +370,7 @@ function refreshPreviewPanel(stateOverride = null) {
     }
     const { now, activity, location } = updateActivityState(characterId);
     display = {
-      timeOfDay: getTimeOfDayLabel(now),
+      timeString: getExactTimeLabel(now),
       location,
       activity,
       duration: formatActivityDuration(characterId, now),
@@ -378,7 +378,7 @@ function refreshPreviewPanel(stateOverride = null) {
   }
 
   panel.innerHTML = `
-    <div class="immersion-preview-row"><b>Time:</b> ${display.timeOfDay}</div>
+    <div class="immersion-preview-row"><b>Time:</b> ${display.timeString}</div>
     <div class="immersion-preview-row"><b>Location:</b> ${display.location}</div>
     <div class="immersion-preview-row"><b>Activity:</b> ${display.activity}</div>
     <div class="immersion-preview-row"><b>Duration:</b> ${display.duration}</div>
